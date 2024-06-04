@@ -20,3 +20,7 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+#virtual environment
+influence-on-ideas-venv
+#all venv
+*venv*
