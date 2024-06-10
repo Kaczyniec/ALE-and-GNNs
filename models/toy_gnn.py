@@ -4,15 +4,14 @@ import torch
 from torch_geometric.nn import SAGEConv
 import torch.nn.functional as F
 from torch import Tensor
-from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
-from sklearn.metrics import roc_auc_score, f1_score
-from torch_geometric.loader import LinkLoader,DataLoader,LinkNeighborLoader
-from torch_geometric.sampler import BaseSampler
+from sklearn.metrics import roc_auc_score, f1_score, roc_curve
+import logging
+
 import torch_geometric.transforms as T
+from torch_geometric.utils import negative_sampling
 
-from utils.preprocess_data import graph_data
-
+from influence_on_ideas.utils.preprocess_data import graph_data
 
 class Model(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels):
@@ -60,12 +59,13 @@ def train(train_data, train_loader, device, optimizer, model):
         loss.backward()
         optimizer.step()
         total_loss += float(loss) * batch_size
+        logging.debug(f'Loss: {loss.item()}')
     return total_loss
 
 
 
 @torch.no_grad()
-def test(loader):
+def test(loader, model):
     """
     Evalutes the model on the test set.
     :param loader: the batch loader
@@ -79,20 +79,30 @@ def test(loader):
         z = model.forward(batch.x.float(), batch.edge_index)
         out = model.decode(z, batch.edge_index).view(-1).sigmoid()
         pred = (out > threshold).float() * 1
+        fpr, tpr, thresholds = roc_curve(np.ones(batch.edge_index.size(1)), out.cpu().numpy())
         score = f1_score(np.ones(batch.edge_index.size(1)), pred.cpu().numpy())
         scores.append(score)
+        logging.debug(f'Batch size: {batch.size(0)}, F1 score: {score}')
+        logging.debug(f'fpr: {fpr}, tpr: {tpr}, thresholds: {thresholds}')
+        
     return np.average(scores)
+
 
 if __name__ == '__main__':
     device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    pd.read  
-    edges, node_features, meme_dict, paper_ids_dict = graph_data(edges, node_features)
-    model, train_data = Model(in_channels= np.shape(train_data.x)[1], hidden_channels=64).to(device), train_data.to(device)
+    #edges = pd.read_csv('data/twitch/large_twitch_edges.csv')
+    #node_features = pd.read_csv('data/twitch/large_twitch_features.csv') 
+    edges = pd.read_csv('data/citations/edge.csv')
+    node_features = pd.read_csv('data/citations/node_features.csv')  
+    train_loader, test_loader, train_data, test_data = graph_data(edges, node_features)
+    model = Model(in_channels= np.shape(train_data.x)[1], hidden_channels=64).to(device)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=0.01)
+    loss_values = []
     for epoch in range(1, 10):
-        loss = train()
-        f1 = test(test_loader)
-        print(f"Epoch: {epoch:03d}, Loss: {loss:.4f}, f1: {f1:.5f}")
+        logging.info(f'Starting epoch {epoch}')
+        loss = train(train_data, train_loader, device, optimizer, model)
+        f1 = test(test_loader, model)
+        loss_values.append(loss)  # Store the loss value
+        logging.info(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, F1: {f1:.5f}')
+        torch.save(model.state_dict(), 'models/citations/'+str())
         
-
-

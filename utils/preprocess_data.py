@@ -50,16 +50,13 @@ def preprocess_data_citations(df):
     edges["paper_id"] = edges["paper_id"].apply(lambda x: paper_ids_dict[x])
     edges["outbound_citations"] = edges["outbound_citations"].apply(
         lambda x: paper_ids_dict[x] if x in paper_ids_dict.keys() else None
-    )  # .dropna()
+    )
     edges = edges.dropna(subset=["outbound_citations"])
-    node_features = np.concatenate(
+    print('columns', df.columns)
+    node_features = pd.concat(
         (
-            normalize(
-                df[["BT_percent", "authors_number", "double_affiliation"]].values,
-                axis=1,
-                norm="max",
-            ),
-            meme_one_hot,
+            df[["BT_percent", "company", "authors_number", "double_affiliation"]],
+            pd.DataFrame(meme_one_hot, columns=mlb.classes_),
         ),
         axis=1,
     )
@@ -68,17 +65,17 @@ def preprocess_data_citations(df):
 
 def graph_data(edges, node_features):
     edge_array = edges.values.T
-
+    
     # Create the edge_index tensor as a PyTorch LongTensor
     edge_index = torch.tensor(edge_array, dtype=torch.long)
 
-    data = Data(x=node_features,
+    data = Data(x=node_features.values.astype(np.float32),
                 edge_index=edge_index,
-                #y=df.BT_percent 
+                y=node_features.company,
                 )
-    
+
     transform = T.RandomLinkSplit(
-        num_val=0.01,
+        num_val=0.1,
         num_test=0.1,
         #disjoint_train_ratio=0.3,
         #neg_sampling_ratio=2.0,
@@ -112,5 +109,5 @@ def graph_data(edges, node_features):
 if __name__=='__main__':
     df = pd.read_parquet(r"C:\Users\ppaul\Documents\AI-strategies-papers-regulations-monitoring\data\s2orc\big_ai_dataset_with_affiliations_extended_oa.parquet")
     edges, node_features, meme_dict, paper_ids_dict = preprocess_data_citations(df)
-    edges.to_parquet("/data/citations/edge.parquet")
-    node_features.to_parquet("/data/citations/node_features.parquet")
+    edges.to_csv("./data/citations/edge.csv")
+    pd.DataFrame(node_features).to_csv("./data/citations/node_features.csv")

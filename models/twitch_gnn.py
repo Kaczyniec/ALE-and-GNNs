@@ -4,6 +4,7 @@ import torch
 from torch_geometric.data import Dataset, Data
 import pandas as pd
 import numpy as np
+import logging
 from sklearn.preprocessing import OneHotEncoder
 import matplotlib.pyplot as plt
 
@@ -16,60 +17,31 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch_geometric.nn.models import GraphSAGE, GCN, GAT
 from torch.optim.lr_scheduler import ExponentialLR
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score, f1_score, roc_curve
+from torch_geometric.utils import negative_sampling
+import sys
+if "C:\\Users\\ppaul\\Documents" not in sys.path:
+    sys.path.append("C:\\Users\\ppaul\\Documents")
+from influence_on_ideas.utils.preprocess_data import graph_data
 
-PATH = "drive/MyDrive/ALE_GNN/model_GAT_16.04"
-
-node_features = pd.read_csv(
-    "/content/drive/MyDrive/ALE_GNN/Twitch/large_twitch_features.csv"
-)
-edges = pd.read_csv("/content/drive/MyDrive/ALE_GNN/Twitch/large_twitch_edges.csv")
-
-data = Data(
-    x=torch.from_numpy(
-        node_features[
-            ["views", "mature", "life_time", "dead_account", "affiliate"]
-        ].values
-    ).float(),
-    edge_index=torch.Tensor(edges.values).T.int(),
-    y=node_features.affiliate,
-)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-transform = T.RandomLinkSplit(
-    num_val=0.4,
-    num_test=0.1,
-    # disjoint_train_ratio=0.3,
-    # neg_sampling_ratio=2.0,
-    add_negative_train_samples=False,
-)
-
-train_data, val_data, test_data = transform(data)
-train_data, val_data, test_data = (
-    train_data.to(device),
-    val_data.to(device),
-    test_data.to(device),
-)
-
-# Define seed edges:
-edge_label_index = train_data.edge_label_index
-edge_label = train_data.edge_label
-
-
-train_loader = LinkNeighborLoader(
-    train_data,
-    num_neighbors=[10] * 2,
-    batch_size=1024,
-    edge_label_index=edge_label_index,
-    edge_label=edge_label,
-)
-test_loader = LinkNeighborLoader(
-    test_data,
-    num_neighbors=[10] * 2,
-    batch_size=512,
-    edge_label_index=test_data.edge_label_index,
-    edge_label=test_data.edge_label,
-)
-
+CONFIGS = [{'hidden_channels': 64, 
+           'lr': 0.01, 
+           #'weight_decay': 5e-4, 
+           #'epochs': 100, 
+           #'batch_size': 64, 
+           'n_layers': 2, 
+           'model_type': 'GAT'
+           },
+           {'hidden_channels': 64, 
+           'lr': 0.01, 
+           #'weight_decay': 5e-4, 
+           #'epochs': 100, 
+           #'batch_size': 64, 
+           'n_layers': 2, 
+           'model_type': 'GCN'
+           },]
+CONFIGS = CONFIGS[1]
 
 class Model(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, model_type, n_layers):
@@ -96,12 +68,7 @@ class Model(torch.nn.Module):
         return (prob_adj > 0).nonzero(as_tuple=False).t()  # get predicted edge_list
 
 
-from tqdm import tqdm
-from sklearn.metrics import f1_score, accuracy_score
-from torch_geometric.utils import negative_sampling
-
-
-def train(model, loader, optimizer, scheduler):
+def train(train_loader, device, optimizer, model, scheduler):
     """
     Single epoch model training in batches.
     :return: total loss for the epoch
@@ -139,16 +106,18 @@ def train(model, loader, optimizer, scheduler):
         optimizer.step()
         total_loss += float(loss) * batch_size
         total_examples += batch_size
-        if i % 100 == 0:
-            torch.save(
-                model.state_dict(), "drive/MyDrive/ALE_GNN/model_GCN_16.05_twitch"
-            )
+        logging.debug(f'Loss: {loss.item()}')
         scheduler.step()
+    if i % 100 == 0:
+        torch.save(
+            model.state_dict(), "models/citations/"+CONFIGS['model_type']+',n_layers'+str(CONFIGS['n_layers'])+',hidden_size'+str(CONFIGS['hidden_size'])
+        )
     return total_loss, total_examples
 
 
 @torch.no_grad()
 def test(model, loader):
+
     """
     Evalutes the model on the test set.
     :param loader: the batch loader
@@ -169,6 +138,26 @@ def test(model, loader):
         edge_label = batch.edge_label.detach().cpu().numpy()
         f1score = f1_score(edge_label, pred)
         f1scores.append(f1score)
-        accuracy = accuracy_score(edge_label, pred)
-        accuracies.append(accuracy)
+        fpr, tpr, thresholds = roc_curve(np.ones(batch.edge_index.size(1)), out.cpu().numpy())
+        logging.debug(f'Batch size: {batch.size(0)}, F1 score: {f1score}')
+        logging.debug(f'fpr: {fpr}, tpr: {tpr}, thresholds: {thresholds}')
     return np.average(f1scores), np.average(accuracies)
+
+if __name__ == '__main__':
+    device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    #edges = pd.read_csv('data/twitch/large_twitch_edges.csv')
+    #node_features = pd.read_csv('data/twitch/large_twitch_features.csv') 
+    edges = pd.read_csv('data/citations/edge.csv', index_col=0)
+    node_features = pd.read_csv('data/citations/node_features.csv', index_col=0)  
+    train_loader, test_loader, train_data, test_data = graph_data(edges, node_features)
+    model = Model(in_channels= np.shape(train_data.x)[1], hidden_channels=64, model_type=CONFIGS['model_type'], n_layers=CONFIGS['n_layers']).to(device)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.01)
+    scheduler = ExponentialLR(optimizer, gamma=0.9)
+    loss_values = []
+    for epoch in range(1, CONFIGS['epochs']):
+        logging.info(f'Starting epoch {epoch}')
+        loss = train(train_loader, device, optimizer, model, scheduler)
+        f1 = test(test_loader, model)
+        loss_values.append(loss)  # Store the loss value
+        logging.info(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, F1: {f1:.5f}')
+        torch.save(model.state_dict(), 'models/citations/'+str())
