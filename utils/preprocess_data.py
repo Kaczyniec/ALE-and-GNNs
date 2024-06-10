@@ -22,7 +22,9 @@ import warnings
 from torch_geometric.nn import SAGEConv
 import torch.nn.functional as F
 from torch import Tensor
-
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
 
 def preprocess_data_citations(df):
     # Generate dataframes of the edges and node features, and the meme dictionary

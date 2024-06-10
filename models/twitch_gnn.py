@@ -1,9 +1,9 @@
 import os.path as osp
-import time
 import torch
 from torch_geometric.data import Dataset, Data
 import pandas as pd
 import numpy as np
+import os
 import logging
 from sklearn.preprocessing import OneHotEncoder
 import matplotlib.pyplot as plt
@@ -24,24 +24,26 @@ import sys
 if "/home/pkaczynska/repositories" not in sys.path:
     sys.path.append("/home/pkaczynska/repositories")
 from influence_on_ideas.utils.preprocess_data import graph_data
-
-CONFIGS = [{'hidden_channels': 64, 
-           'lr': 0.01, 
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
+CONFIGS = [{'hidden_channels': 128, 
+           'lr': 0.005, 
            #'weight_decay': 5e-4, 
            'epochs': 10, 
            #'batch_size': 64, 
            'n_layers': 3, 
            'model_type': 'GAT'
            },
-           {'hidden_channels': 64, 
-           'lr': 0.01, 
+           {'hidden_channels': 128, 
+           'lr': 0.005, 
            #'weight_decay': 5e-4, 
            'epochs': 10, 
            #'batch_size': 64, 
            'n_layers': 3, 
            'model_type': 'GCN'
            },]
-CONFIGS = CONFIGS[0]
+CONFIGS = CONFIGS[1]
 
 class Model(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, model_type, n_layers):
@@ -109,7 +111,7 @@ def train(train_loader, device, optimizer, model, scheduler):
         scheduler.step()
     
     torch.save(
-        model.state_dict(), "models/citations/"+CONFIGS['model_type']+',n_layers'+str(CONFIGS['n_layers'])+',hidden_size'+str(CONFIGS['hidden_size'])
+        model.state_dict(), "models/citations/"+CONFIGS['model_type']+',n_layers'+str(CONFIGS['n_layers'])+',hidden_size'+str(CONFIGS['hidden_channels'])
     )
     return total_loss, total_examples
 
@@ -148,7 +150,7 @@ def test(model, loader, device='cuda'):
     avg_roc_auc = roc_auc_score(all_labels, all_preds)
     
     logging.info(f'F1 score: {avg_f1:.4f}, ROC AUC: {avg_roc_auc:.4f}')
-
+    print(f'F1 score: {avg_f1:.4f}, ROC AUC: {avg_roc_auc:.4f}')
     return {'average_f1_score': avg_f1, 'average_roc_auc': avg_roc_auc}
 
 if __name__ == '__main__':
@@ -160,9 +162,16 @@ if __name__ == '__main__':
     edges = pd.read_parquet('data/citations/edge.parquet')
     node_features = pd.read_parquet('data/citations/node_features.parquet')  
     train_loader, test_loader, train_data, test_data = graph_data(edges, node_features)
-    model = Model(in_channels= np.shape(train_data.x)[1], hidden_channels=CONFIGS['hidden_channels'], model_type=CONFIGS['model_type'], n_layers=CONFIGS['n_layers']).to(device)
 
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=0.01)
+    model = Model(in_channels= np.shape(train_data.x)[1], hidden_channels=CONFIGS['hidden_channels'], model_type=CONFIGS['model_type'], n_layers=CONFIGS['n_layers']).to(device)
+    # Check if the file exists
+    model_path = "models/citations/"+CONFIGS['model_type']+',n_layers'+str(CONFIGS['n_layers'])+',hidden_size'+str(CONFIGS['hidden_channels']
+    if os.path.isfile(model_path):
+        # Load the weights into the model
+        model.load_state_dict(torch.load(model_path))
+        print("Model weights loaded successfully.")
+
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=CONFIGS['lr'])
     scheduler = ExponentialLR(optimizer, gamma=0.9)
     loss_values = []
     for epoch in range(CONFIGS['epochs']):
