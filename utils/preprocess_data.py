@@ -71,7 +71,7 @@ def graph_data(edges, node_features):
 
     data = Data(x=node_features.values.astype(np.float32),
                 edge_index=edge_index,
-                y=node_features.company,
+                #y=node_features.company,
                 )
 
     transform = T.RandomLinkSplit(
