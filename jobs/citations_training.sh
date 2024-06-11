@@ -14,4 +14,4 @@
 source ./.venv/bin/activate
 
 # Run the script
-python ./models/twitch_gnn.py
+python ./models/gnn.py

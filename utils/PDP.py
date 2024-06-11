@@ -1,10 +1,14 @@
 import random
 import numpy as np
+import pandas as pd
 import torch
 import time
 from tqdm import tqdm
 
-def graph_pdp_cat_exact(dataset, model, column, values, max_bin_size=256, k=256, device):
+from influence_on_ideas.utils.preprocess_data import graph_data
+from influence_on_ideas.models.gnn import Model
+
+def graph_pdp_exact(dataset, model, column, values, max_bin_size=256, k=256, device):
     '''function to plot the partial dependence plot
     data: ??
     model: the pyg model for link prediction
@@ -37,7 +41,7 @@ def graph_pdp_cat_exact(dataset, model, column, values, max_bin_size=256, k=256,
     #plt.ylabel('Mean probability of being cited')
     return probabilities, end-start
 
-def graph_pdp_cat_approximate(dataset, model, column, values, max_bin_size=256, k=256, device):
+def graph_pdp_approximate(dataset, model, column, values, max_bin_size=256, k=256, device):
     '''function to plot the partial dependence plot
     data: ??
     model: the pyg model for link prediction
@@ -65,11 +69,16 @@ def graph_pdp_cat_approximate(dataset, model, column, values, max_bin_size=256, 
         z = model.forward(dataset.x, dataset.edge_index)
         out = model.decode(z, edge_label_index).view(-1).sigmoid()
 
-        probabilities[value].append(out.detach().cpu().numpy())
-        probabilities[value] = np.mean(probabilities[value])
+        probabilities[value].append(np.mean(out.detach().cpu().numpy()))
     end = time.time()
 
     return probabilities, end-start
 
 if __name__ == '__main__':
-    
+  # read data. read model
+  for _ in range(20):
+    ale_exact, t_exact = graph_pdp_exact(model,train_data, 0, 5, None)
+    ale_approximate, t_approximate = graph_pdp_approximate(model,train_data, 0, 5, None)
+    results = pd.concat([results, pd.DataFrame({'k': 256, 'max_bin_size': 'max', 'PDP exact': ale_exact, 'time_exact': t_exact, 'PDP approximate': ale_approximate, 'time_approximate': t_approximate})])
+    # check if it saves if no file is present
+    results.to_csv('data/PDP_comparison.csv', mode='a', header=False)#, 'time_approximate': t_approximate'ALE approximate': ale_approximate,

@@ -16,6 +16,7 @@ from torch_geometric.nn import SAGEConv, GCNConv
 import torch.nn.functional as F
 from torch import Tensor
 from torch_geometric.nn.models import GraphSAGE, GCN, GAT
+from torch_geometric.data import InMemoryDataset
 from torch.optim.lr_scheduler import ExponentialLR
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score, f1_score, roc_curve
@@ -159,13 +160,16 @@ if __name__ == '__main__':
     print("Training on: ", device)
     #edges = pd.read_csv('data/twitch/large_twitch_edges.csv')
     #node_features = pd.read_csv('data/twitch/large_twitch_features.csv') 
+    train_data = torch.load('data/citations_train_data')
     edges = pd.read_parquet('data/citations/edge.parquet')
     node_features = pd.read_parquet('data/citations/node_features.parquet')  
     train_loader, test_loader, train_data, test_data = graph_data(edges, node_features)
+    #torch.save(train_data, 'data/citations/train_data')
+    #torch.save(test_data, 'data/citations/test_data')
 
     model = Model(in_channels= np.shape(train_data.x)[1], hidden_channels=CONFIGS['hidden_channels'], model_type=CONFIGS['model_type'], n_layers=CONFIGS['n_layers']).to(device)
     # Check if the file exists
-    model_path = "models/citations/"+CONFIGS['model_type']+',n_layers'+str(CONFIGS['n_layers'])+',hidden_size'+str(CONFIGS['hidden_channels']
+    model_path = "models/citations/"+CONFIGS['model_type']+',n_layers'+str(CONFIGS['n_layers'])+',hidden_size'+str(CONFIGS['hidden_channels'])
     if os.path.isfile(model_path):
         # Load the weights into the model
         model.load_state_dict(torch.load(model_path))
