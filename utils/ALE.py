@@ -1,6 +1,35 @@
 import numpy as np
+import pandas as pd
 import torch
 import time
+from tqdm import tqdm
+import sys
+import argparse
+import os
+from torch_geometric.loader import LinkNeighborLoader
+from torch_geometric.utils.sparse import is_torch_sparse_tensor
+if "/home/pkaczynska/repositories" not in sys.path:
+    sys.path.append("/home/pkaczynska/repositories")
+from influence_on_ideas.utils.preprocess_data import graph_data
+from influence_on_ideas.models.twitch_gnn import Model
+CONFIGS = [{'hidden_channels': 256, 
+           'lr': 0.001, 
+           #'weight_decay': 5e-4, 
+           'epochs': 10, 
+           #'batch_size': 64, 
+           'n_layers': 4, 
+           'model_type': 'GAT'
+           },
+           {'hidden_channels': 256, 
+           'lr': 0.0001, 
+           #'weight_decay': 5e-4, 
+           'epochs': 10, 
+           #'batch_size': 64, 
+           'n_layers': 4, 
+           'model_type': 'GCN'
+           },]
+CONFIGS = [CONFIGS[1]]
+
 #Change: the prediction is between node with change value and the rest of the dataset!!!
 def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, max_bin_size = None, k=256):
     start = time.time()
@@ -31,28 +60,25 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
             bin_data_idx_subset = np.random.choice(bin_data_idx, size=min(max_bin_size, bin_data_idx.shape[0]), replace=False)
           else:
             bin_data_idx_subset = bin_data_idx
-          data = dataset.clone()
           for idx in bin_data_idx_subset:
 
             model.eval()
 
             # Step 3: Calculate model predictions for lower and upper end of the section
             edge_label_index = torch.cat((torch.Tensor(np.random.choice(list(nodes), size=k)).int().unsqueeze(-1), idx*torch.ones(k).int().unsqueeze(-1)),dim=1)
-            # LOOK HOW TO OPERATE ON TWO DATASET, CHANGING THE VALUE OF ONLY ONE
-            old_value = data.x[idx, feature_index]
-            data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
+            old_value = dataset.x[idx, feature_index]
+            
+            dataset.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
+            lower_encode = model(dataset.x, dataset.edge_index)
+            lower = model.decode(lower_encode, edge_label_index)
+            dataset.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
+            upper_encode = model(dataset.x, dataset.edge_index)
+            upper = model.decode(upper_encode, edge_label_index)
 
-            lower_encode = model(data.x, data.edge_index)
-            lower = model.decode(lower_encode, edge_label_index).sigmoid()
-
-            data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
-
-            upper_encode = model(data.x, data.edge_index)
-            upper = model.decode(upper_encode, edge_label_index).sigmoid()
             # Step 4: Subtract the above values. Average across all data points in the bin
 
-            bin_ale.append(float(torch.mean(upper-lower).detach()))
-            data.x[idx, feature_index] = old_value
+            bin_ale = float(torch.mean((upper-lower)).detach())
+            dataset.x[idx, feature_index] = old_value
 
           # Step 5: Calculate the cumulative sum of the averaged differences
           bin_ale = np.mean(bin_ale)
@@ -64,16 +90,13 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
       end = time.time()
       return ale, end-start
 
-#ale, t = accumulated_local_effects_exact(model,train_data, 0, 5, 64, k=16)
-
-
-#Change: the prediction is between node with change value and the rest of the dataset!!!
-def accumulated_local_effects(model, dataset, feature_index, num_bins=10, max_bin_size = None, k=256):
+    
+def accumulated_local_effects_approximate(model, dataset, feature_index, num_bins=10, max_bin_size = None, k=256):
     start = time.time()
     # Step 1: Divide the range of values of the selected variable into bins
     feature_values = dataset.x[:, feature_index].cpu()
 
-    bin_edges = np.linspace(feature_values.min()-0.001, feature_values.max()+0.001, num_bins + 1)
+    bin_edges = np.linspace(feature_values.min()-0.0001, feature_values.max()+0.0001, num_bins + 1)
 
     # Step 2: Sort the data into these bins according to the value of the feature
     bin_indices = np.digitize(feature_values.numpy(), bin_edges) - 1
@@ -97,7 +120,6 @@ def accumulated_local_effects(model, dataset, feature_index, num_bins=10, max_bi
             bin_data_idx_subset = np.random.choice(bin_data_idx, size=min(max_bin_size, bin_data_idx.shape[0]), replace=False)
           else:
             bin_data_idx_subset = bin_data_idx
-          data = dataset.clone()
 
           model.eval()
 
@@ -109,19 +131,24 @@ def accumulated_local_effects(model, dataset, feature_index, num_bins=10, max_bi
           edge_label_index = torch.cat(
               (torch.Tensor(bin_data_idx_subset).int().repeat_interleave(unique.shape[0]).unsqueeze(-1),
                unique.repeat(bin_data_idx_subset.shape).int().unsqueeze(-1)), axis=1)
-          old_values = data.x
+          old_values = dataset.x
+          dataset.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
 
-          data.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
-          lower_encode = model(data.x, data.edge_index)
-          lower = model.decode(lower_encode, edge_label_index).sigmoid()
+          print(is_torch_sparse_tensor(dataset.edge_index))
+          lower_encode = model(dataset.x, dataset.edge_index)
+          lower = model.decode(lower_encode, edge_label_index).view(-1).sigmoid()
 
-          data.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
-          upper_encode = model(data.x, data.edge_index)
-          upper = model.decode(upper_encode, edge_label_index).sigmoid()
+          dataset.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
+
+          upper_encode = model(dataset.x, dataset.edge_index)
+          upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
+
+            #preds.append(upper-lower)
+
           # Step 4: Subtract the above values. Average across all data points in the bin
 
-          bin_ale = float(torch.mean(upper-lower).detach())
-          data.x = old_values
+          bin_ale.append(float(torch.mean(upper-lower).detach()))
+          dataset.x = old_values
 
           if ale:
               ale.append(bin_ale + ale[-1])
@@ -130,4 +157,61 @@ def accumulated_local_effects(model, dataset, feature_index, num_bins=10, max_bi
 
       end = time.time()
       return ale, end-start
+    
+    
 
+if __name__ == '__main__':
+  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  print("Running on: ", device)
+  EDGES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_edges_processed.csv"
+  NODE_FEATURES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_nodes_processed.csv"
+  DATASET_NAME="CD1-E_no2"
+  parser = argparse.ArgumentParser(description='Graph Neural Network Explaining Script')
+  parser.add_argument('--edges_path', type=str, default=EDGES_PATH, help='Path to the edges CSV file')
+  parser.add_argument('--node_features_path', type=str, default=NODE_FEATURES_PATH, help='Path to the node features CSV file')
+  parser.add_argument('--name', type=str, default=DATASET_NAME, help='Dataset name')
+  parser.add_argument('--model_type', type=str, default='GCN', help='Architecture')
+  parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden dimension')
+  parser.add_argument('--n_layers', type=int, default=2, help='Number of layers')
+  parser.add_argument('--column', type=int, default=3, help='Which column explain?')
+  args = parser.parse_args()
+
+
+  #edges_path = 'data/citations/edge.parquet'
+  #node_features_path = 'data/citations/node_features.parquet'
+  #data_path = 'data/citations/'
+  edges = pd.read_csv(args.edges_path, sep=';')[['node1id', 'node2id']]
+  node_features = pd.read_csv(args.node_features_path, sep=';')[['pos_x', 'pos_y',  'pos_z', 'isAtSampleBorder']]
+  #edges = pd.read_parquet(args.edges_path)
+  #node_features = pd.read_parquet(args.node_features_path)
+  
+  train_loader, test_loader, train_data, test_data = graph_data(edges, node_features, "data/"+args.name)
+  #model_path = f"models/citations/{config['model_type']},n_layers{config['n_layers']},hidden_size{config['hidden_channels']}"
+  model_path = os.path.join("models", args.name, args.model_type+",n_layers"+str(args.n_layers)+",hidden_size"+str(args.hidden_dim))+"lr1e-06.pth"
+  print(model_path)
+  # Initialize the model
+  model = Model(
+      in_channels=np.shape(train_data.x)[1], 
+      hidden_channels=args.hidden_dim, 
+      model_type=args.model_type, 
+      n_layers=args.n_layers
+  ).to(device)
+
+  # Check if the model weights file exists
+  if False and os.path.isfile(model_path):
+      # Load the weights into the model
+      model.load_state_dict(torch.load(model_path))
+      print("Model weights loaded successfully.")
+  else:
+      print("Model weights file does not exist. Initializing model with random weights.")
+  test_data.to(device)
+  
+  results = pd.DataFrame(columns=['idx', 'k', 'max_bin_size', 'explanation_exact', 'time_exact', 'explanation_approximate', 'time_approximate'])
+  for k in range(4, 11):
+    for max_bin_size in range(4, 11):
+      print(k, max_bin_size)
+      for i in range(5):
+          #ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, args.column, 5, 2**max_bin_size, 2**k)
+          ale_approximate, t_approximate = accumulated_local_effects_approximate(model,test_data, args.column, 5, 2**max_bin_size, 2**k)
+          results = pd.concat([results, pd.DataFrame({'idx': i, 'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_exact': ale_exact, 'time_exact': t_exact, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate})])
+          results.to_csv(os.path.join("data", args.name, f"ALE_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_dim}.csv"), mode='a', header=False)

@@ -1,5 +1,4 @@
-import os.path as osp
-
+import os 
 import torch
 from torch_geometric.data import Dataset, Data
 import pandas as pd
@@ -65,27 +64,39 @@ def preprocess_data_citations(df):
 
     return edges, node_features, meme_dict, paper_ids_dict
 
-def graph_data(edges, node_features):
+def graph_data(edges, node_features, path, batch_size=1024):
+
+    train_data_path = path+'train_data.pt'
+    test_data_path = path+'test_data.pt'
+    val_data_path = path+'val_data.pt'
     edge_array = edges.values.T
-    
-    # Create the edge_index tensor as a PyTorch LongTensor
-    edge_index = torch.tensor(edge_array, dtype=torch.long)
+    edge_index = torch.tensor(edge_array, dtype=torch.int64)
 
-    data = Data(x=node_features.values.astype(np.float32),
-                edge_index=edge_index,
-                #y=node_features.company,
-                )
+    if os.path.isfile(train_data_path) and os.path.isfile(test_data_path) and os.path.isfile(val_data_path):
+        # Load the train/test data
+        train_data = torch.load(train_data_path)
+        test_data = torch.load(test_data_path)
+        val_data = torch.load(val_data_path)
+        print("Train and test data loaded successfully.")
+    else:
+        data = Data(x=torch.tensor(node_features.values.astype(np.float32)),
+                    edge_index=edge_index,
+                    #y=node_features.company,
+                    )
 
-    transform = T.RandomLinkSplit(
-        num_val=0.1,
-        num_test=0.1,
-        #disjoint_train_ratio=0.3,
-        #neg_sampling_ratio=2.0,
-        add_negative_train_samples=False
-    )
-    device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    train_data, val_data, test_data = transform(data)
-    train_data, val_data, test_data = train_data.to(device), val_data.to(device), test_data.to(device)
+        transform = T.RandomLinkSplit(
+            num_val=0.1,
+            num_test=0.1,
+            #disjoint_train_ratio=0.3,
+            #neg_sampling_ratio=2.0,
+            add_negative_train_samples=False
+        )
+        
+        train_data, val_data, test_data = transform(data)
+        torch.save(train_data, train_data_path)
+        torch.save(test_data, test_data_path)
+        torch.save(val_data, val_data_path)
+    train_data, val_data, test_data = train_data, val_data, test_data
 
     # Define seed edges:
     edge_label_index = train_data.edge_label_index
@@ -95,18 +106,18 @@ def graph_data(edges, node_features):
     train_loader = LinkNeighborLoader(
         train_data,
         num_neighbors=[30] * 2,
-        batch_size=256,
+        batch_size=batch_size,
         edge_label_index=edge_label_index,
         edge_label=edge_label,
     )
     test_loader = LinkNeighborLoader(
         test_data,
         num_neighbors=[30] * 2,
-        batch_size=256,
+        batch_size=batch_size,
         edge_label_index=test_data.edge_label_index,
         edge_label=test_data.edge_label,
     )
-    return train_loader, test_loader, train_data, test_data
+    return train_loader, test_loader, train_data, test_data  
 
 if __name__=='__main__':
     df = pd.read_parquet(r"C:\Users\ppaul\Documents\AI-strategies-papers-regulations-monitoring\data\s2orc\big_ai_dataset_with_affiliations_extended_oa.parquet")
