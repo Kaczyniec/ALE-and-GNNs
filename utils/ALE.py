@@ -56,16 +56,17 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
             # Step 3: Calculate model predictions for lower and upper end of the section
             unique = np.random.choice(list(nodes), size=k)
             edge_label_index = torch.cat((torch.Tensor(unique).int().unsqueeze(-1), idx*torch.ones(k).int().unsqueeze(-1)),dim=1)
-            subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(unique)+[idx], 2, data.edge_index)
+            subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(unique)+[idx], 2, data.edge_index, relabel_nodes=True)
             data.edge_index = edge_index
+            
             data.to(device)
             data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
-            lower_encode = model(data.x, data.edge_index)
+            lower_encode = model(data.x[subset], data.edge_index)
             lower = model.decode(lower_encode, edge_label_index)
             data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
-            upper_encode = model(data.x, data.edge_index)
+            upper_encode = model(data.x[subset], data.edge_index)
             upper = model.decode(upper_encode, edge_label_index)
-
+      
             # Step 4: Subtract the above values. Average across all data points in the bin
 
             bin_ale = float(torch.mean((upper-lower)).detach())
@@ -117,7 +118,7 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
           unique = np.random.choice(list(nodes), size=k)
 
           #create a tensor with edges to predict: for every node from bin_data_idx_subset check connections to every node in unique
-          subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(bin_data_idx_subset)+list(unique), 2, dataset.edge_index)
+          subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(bin_data_idx_subset)+list(unique), 2, dataset.edge_index, relabel_index=True)
           
           data.edge_index = edge_index
 
@@ -127,12 +128,12 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
                unique.repeat(bin_data_idx_subset.shape).int().unsqueeze(-1)), axis=1)
           data.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
           data.to(device)
-          lower_encode = model(data.x, data.edge_index)
+          lower_encode = model(data.x[subset], data.edge_index)
           lower = model.decode(lower_encode, edge_label_index).view(-1).sigmoid()
 
           dataset.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
 
-          upper_encode = model(data.x, data.edge_index)
+          upper_encode = model(data.x[subset], data.edge_index)
           upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
 
             #preds.append(upper-lower)
