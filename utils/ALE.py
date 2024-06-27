@@ -7,31 +7,20 @@ import sys
 import argparse
 import os
 from torch_geometric.loader import LinkNeighborLoader
-from torch_geometric.utils.sparse import is_torch_sparse_tensor
+from torch_geometric.utils import k_hop_subgraph
 if "/home/pkaczynska/repositories" not in sys.path:
     sys.path.append("/home/pkaczynska/repositories")
+#path_to_add = "C:/Users/ppaul/Documents"
+
+#if path_to_add not in sys.path:
+    # Add the path to sys.path
+#    sys.path.append(path_to_add)
 from influence_on_ideas.utils.preprocess_data import graph_data
 from influence_on_ideas.models.twitch_gnn import Model
-CONFIGS = [{'hidden_channels': 256, 
-           'lr': 0.001, 
-           #'weight_decay': 5e-4, 
-           'epochs': 10, 
-           #'batch_size': 64, 
-           'n_layers': 4, 
-           'model_type': 'GAT'
-           },
-           {'hidden_channels': 256, 
-           'lr': 0.0001, 
-           #'weight_decay': 5e-4, 
-           'epochs': 10, 
-           #'batch_size': 64, 
-           'n_layers': 4, 
-           'model_type': 'GCN'
-           },]
-CONFIGS = [CONFIGS[1]]
+
 
 #Change: the prediction is between node with change value and the rest of the dataset!!!
-def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, max_bin_size = None, k=256):
+def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, max_bin_size = None, k=256, device=torch.device('cuda')):
     start = time.time()
     # Step 1: Divide the range of values of the selected variable into bins
     feature_values = dataset.x[:, feature_index].cpu()
@@ -61,24 +50,25 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
           else:
             bin_data_idx_subset = bin_data_idx
           for idx in bin_data_idx_subset:
-
+            data = dataset.clone()
             model.eval()
 
             # Step 3: Calculate model predictions for lower and upper end of the section
-            edge_label_index = torch.cat((torch.Tensor(np.random.choice(list(nodes), size=k)).int().unsqueeze(-1), idx*torch.ones(k).int().unsqueeze(-1)),dim=1)
-            old_value = dataset.x[idx, feature_index]
+            unique = np.random.choice(list(nodes), size=k)
+            edge_label_index = torch.cat((torch.Tensor(unique).int().unsqueeze(-1), idx*torch.ones(k).int().unsqueeze(-1)),dim=1)
+            subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(unique)+[idx], 2, data.edge_index)
+            data.edge_index = edge_index
             
-            dataset.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
-            lower_encode = model(dataset.x, dataset.edge_index)
+            data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
+            lower_encode = model(data.x, data.edge_index)
             lower = model.decode(lower_encode, edge_label_index)
-            dataset.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
-            upper_encode = model(dataset.x, dataset.edge_index)
+            data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
+            upper_encode = model(data.x, data.edge_index)
             upper = model.decode(upper_encode, edge_label_index)
 
             # Step 4: Subtract the above values. Average across all data points in the bin
 
             bin_ale = float(torch.mean((upper-lower)).detach())
-            dataset.x[idx, feature_index] = old_value
 
           # Step 5: Calculate the cumulative sum of the averaged differences
           bin_ale = np.mean(bin_ale)
@@ -91,7 +81,7 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
       return ale, end-start
 
     
-def accumulated_local_effects_approximate(model, dataset, feature_index, num_bins=10, max_bin_size = None, k=256):
+def accumulated_local_effects_approximate(model, dataset, feature_index, num_bins=10, max_bin_size = None, k=256, device=torch.device('cuda')):
     start = time.time()
     # Step 1: Divide the range of values of the selected variable into bins
     feature_values = dataset.x[:, feature_index].cpu()
@@ -110,7 +100,7 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
       for bin_idx in range(num_bins):
           # Filter dataset based on bin index
           bin_ale = []
-
+          data = dataset.clone()
           bin_data_idx = np.where(bin_indices == bin_idx)[0]
           if bin_data_idx.shape[0]==0 and len(ale)>0:
             ale.append(ale[-1])
@@ -124,23 +114,25 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
           model.eval()
 
           # Step 3: Calculate model predictions for lower and upper end of the section
-          unique = torch.Tensor(np.random.choice(list(nodes), size=k)).int()
+          unique = np.random.choice(list(nodes), size=k)
 
           #create a tensor with edges to predict: for every node from bin_data_idx_subset check connections to every node in unique
+          subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(bin_data_idx_subset)+list(unique), 2, dataset.edge_index)
+          
+          data.edge_index = edge_index
 
+          unique = torch.Tensor(unique).int()
           edge_label_index = torch.cat(
               (torch.Tensor(bin_data_idx_subset).int().repeat_interleave(unique.shape[0]).unsqueeze(-1),
                unique.repeat(bin_data_idx_subset.shape).int().unsqueeze(-1)), axis=1)
-          old_values = dataset.x
-          dataset.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
-
-          print(is_torch_sparse_tensor(dataset.edge_index))
-          lower_encode = model(dataset.x, dataset.edge_index)
+          data.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
+          data.to(device)
+          lower_encode = model(data.x, data.edge_index)
           lower = model.decode(lower_encode, edge_label_index).view(-1).sigmoid()
 
           dataset.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
 
-          upper_encode = model(dataset.x, dataset.edge_index)
+          upper_encode = model(data.x, data.edge_index)
           upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
 
             #preds.append(upper-lower)
@@ -148,7 +140,6 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
           # Step 4: Subtract the above values. Average across all data points in the bin
 
           bin_ale.append(float(torch.mean(upper-lower).detach()))
-          dataset.x = old_values
 
           if ale:
               ale.append(bin_ale + ale[-1])
@@ -163,8 +154,8 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
 if __name__ == '__main__':
   device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   print("Running on: ", device)
-  EDGES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_edges_processed.csv"
-  NODE_FEATURES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_nodes_processed.csv"
+  EDGES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_edges.csv"
+  NODE_FEATURES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_nodes.csv"
   DATASET_NAME="CD1-E_no2"
   parser = argparse.ArgumentParser(description='Graph Neural Network Explaining Script')
   parser.add_argument('--edges_path', type=str, default=EDGES_PATH, help='Path to the edges CSV file')
@@ -198,13 +189,13 @@ if __name__ == '__main__':
   ).to(device)
 
   # Check if the model weights file exists
-  if False and os.path.isfile(model_path):
+  if os.path.isfile(model_path):
       # Load the weights into the model
       model.load_state_dict(torch.load(model_path))
       print("Model weights loaded successfully.")
   else:
       print("Model weights file does not exist. Initializing model with random weights.")
-  test_data.to(device)
+  
   
   results = pd.DataFrame(columns=['idx', 'k', 'max_bin_size', 'explanation_exact', 'time_exact', 'explanation_approximate', 'time_approximate'])
   for k in range(4, 11):
@@ -212,6 +203,6 @@ if __name__ == '__main__':
       print(k, max_bin_size)
       for i in range(5):
           #ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, args.column, 5, 2**max_bin_size, 2**k)
-          ale_approximate, t_approximate = accumulated_local_effects_approximate(model,test_data, args.column, 5, 2**max_bin_size, 2**k)
+          ale_approximate, t_approximate = accumulated_local_effects_approximate(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
           results = pd.concat([results, pd.DataFrame({'idx': i, 'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_exact': ale_exact, 'time_exact': t_exact, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate})])
           results.to_csv(os.path.join("data", args.name, f"ALE_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_dim}.csv"), mode='a', header=False)
