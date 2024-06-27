@@ -137,9 +137,9 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
 
           upper_encode = model(data.x[subset], data.edge_index)
           upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
+          del data
 
             #preds.append(upper-lower)
-
           # Step 4: Subtract the above values. Average across all data points in the bin
 
           bin_ale.append(float(torch.mean(upper-lower).detach()))
