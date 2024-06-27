@@ -7,6 +7,7 @@ import torch_geometric
 import torch_geometric.transforms as T
 import torch.nn.functional as F
 from torch import Tensor
+from torch_geometric.nn.norm import BatchNorm
 from torch_geometric.nn.models import GraphSAGE, GCN, GAT
 from torch_geometric.nn.norm import BatchNorm
 from torch_geometric.metrics import LinkPredF1, LinkPredMAP, LinkPredPrecision, LinkPredRecall
