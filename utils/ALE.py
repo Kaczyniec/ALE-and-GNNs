@@ -58,7 +58,7 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
             edge_label_index = torch.cat((torch.Tensor(unique).int().unsqueeze(-1), idx*torch.ones(k).int().unsqueeze(-1)),dim=1)
             subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(unique)+[idx], 2, data.edge_index)
             data.edge_index = edge_index
-            
+            data.to(device)
             data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
             lower_encode = model(data.x, data.edge_index)
             lower = model.decode(lower_encode, edge_label_index)
@@ -202,7 +202,7 @@ if __name__ == '__main__':
     for max_bin_size in range(4, 11):
       print(k, max_bin_size)
       for i in range(5):
-          #ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, args.column, 5, 2**max_bin_size, 2**k)
+          ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
           ale_approximate, t_approximate = accumulated_local_effects_approximate(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
           results = pd.concat([results, pd.DataFrame({'idx': i, 'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_exact': ale_exact, 'time_exact': t_exact, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate})])
           results.to_csv(os.path.join("data", args.name, f"ALE_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_dim}.csv"), mode='a', header=False)
