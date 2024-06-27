@@ -11,25 +11,10 @@ if "/home/pkaczynska/repositories" not in sys.path:
 from influence_on_ideas.utils.preprocess_data import graph_data
 from influence_on_ideas.models.twitch_gnn import Model
 from torch_geometric.loader import LinkNeighborLoader
+from torch_geometric.utils import k_hop_subgraph
 import os
 import argparse
 
-CONFIGS = [{'hidden_channels': 256, 
-           'lr': 0.001, 
-           #'weight_decay': 5e-4, 
-           'epochs': 10, 
-           #'batch_size': 64, 
-           'n_layers': 4, 
-           'model_type': 'GAT'
-           },
-           {'hidden_channels': 256, 
-           'lr': 0.0001, 
-           #'weight_decay': 5e-4, 
-           'epochs': 10, 
-           #'batch_size': 64, 
-           'n_layers': 4, 
-           'model_type': 'GCN'
-           },]
 
 def graph_pdp_exact(dataset, model, column, values, max_bin_size=256, k=256, device='cpu'):
     '''function to plot the partial dependence plot
@@ -51,24 +36,21 @@ def graph_pdp_exact(dataset, model, column, values, max_bin_size=256, k=256, dev
       for value in tqdm(values):
         
         for paper in random_papers:
-            old_value = dataset.x[paper, column]
-            dataset.x[paper, column] = torch.tensor(value)
+            data = dataset.clone()
+          
+            data.x[paper, column] = torch.tensor(value)
             unique = np.random.choice(range(dataset.x.shape[0]), size=k, replace=False)
-            edge_label_index = torch.cat((torch.Tensor(unique).unsqueeze(-1), int(paper)*torch.ones(unique.shape).unsqueeze(-1)),dim=1).type(torch.LongTensor).to(device)
-            loader = LinkNeighborLoader(
-              dataset,
-              num_neighbors=[10] * 2,
-              batch_size=1024,
-              edge_label_index=edge_label_index,
-            )
-            preds = []
-            for batch in loader:
-              encode = model(dataset.x, batch.edge_index)
-              out = model.decode(encode, batch.edge_label_index)
-              preds.append(out)
+            subset, edge_index, mapping, edge_mask = k_hop_subgraph([paper]+list(unique), 2, data.edge_index)
 
-            
-            dataset.x[paper, column] = old_value
+            data.edge_index = edge_index
+            edge_label_index = torch.cat((torch.Tensor(unique).unsqueeze(-1), int(paper)*torch.ones(unique.shape).unsqueeze(-1)),dim=1).type(torch.LongTensor).to(device)
+            data.to(device)
+            preds = []
+
+            encode = model(data.x, data.edge_index)
+            out = model.decode(encode, edge_label_index)
+            preds.append(out)
+
         probabilities[value] = np.mean(torch.cat(preds).detach().cpu().numpy())
     end = time.time()
     #plt.plot(values, probabilities.values())
@@ -92,15 +74,17 @@ def graph_pdp_approximate(dataset, model, column, values, max_bin_size=256, k=25
       random_papers = np.array(range(dataset.x.shape[0]))
     for value in tqdm(values):
       probabilities[value] = []
-
-      dataset.x[random_papers, column] = torch.tensor(value).float()
+      data = dataset.clone()
+      data.x[random_papers, column] = torch.tensor(value).float()
       unique = np.random.choice(range(dataset.x.shape[0]), size=k, replace=False)
+      subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(random_papers)+list(unique), 2, data.edge_index)
 
+      data.edge_index = edge_index
       edge_label_index = torch.cat((torch.Tensor(unique).int().repeat(random_papers.shape[0]).unsqueeze(-1), torch.Tensor(random_papers).int().repeat_interleave(unique.shape[0]).unsqueeze(-1)),dim=1).to(device)
 
       model.eval()
       with torch.no_grad():
-        z = model.forward(dataset.x, dataset.edge_index)
+        z = model.forward(data.x, data.edge_index)
         out = model.decode(z, edge_label_index).view(-1).sigmoid()
         probabilities[value].append(np.mean(out.detach().cpu().numpy()))
     end = time.time()

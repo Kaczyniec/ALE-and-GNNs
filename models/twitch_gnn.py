@@ -45,12 +45,14 @@ CONFIGS = CONFIGS[1]
 class Model(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, model_type, n_layers):
         super().__init__()
+        self.activation = torch.nn.LeakyReLU()
+        self.norm = torch.nn.norm.BatchNorm(hidden_channels)
         if model_type == "GraphSAGE":
-            self.model = GraphSAGE(in_channels, hidden_channels, n_layers)
+            self.model = GraphSAGE(in_channels, hidden_channels, n_layers, act=self.activation, norm=self.norm)
         elif model_type == "GCN":
-            self.model = GCN(in_channels, hidden_channels, n_layers)
+            self.model = GCN(in_channels, hidden_channels, n_layers, act=self.activation, norm=self.norm)
         elif model_type == "GAT":
-            self.model = GAT(in_channels, hidden_channels, n_layers)
+            self.model = GAT(in_channels, hidden_channels, n_layers, act=self.activation, norm=self.norm)
 
     def forward(self, x: Tensor, edge_index: Tensor) -> Tensor:
         x = self.model(x, edge_index)
