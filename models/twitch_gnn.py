@@ -8,6 +8,7 @@ import torch_geometric.transforms as T
 import torch.nn.functional as F
 from torch import Tensor
 from torch_geometric.nn.models import GraphSAGE, GCN, GAT
+from torch_geometric.nn.norm import BatchNorm
 from torch_geometric.metrics import LinkPredF1, LinkPredMAP, LinkPredPrecision, LinkPredRecall
 from torch.optim.lr_scheduler import ExponentialLR
 from tqdm import tqdm
@@ -46,7 +47,7 @@ class Model(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, model_type, n_layers):
         super().__init__()
         self.activation = torch.nn.LeakyReLU()
-        self.norm = torch.nn.BatchNorm(hidden_channels)
+        self.norm = BatchNorm(hidden_channels)
         if model_type == "GraphSAGE":
             self.model = GraphSAGE(in_channels, hidden_channels, n_layers, act=self.activation, norm=self.norm)
         elif model_type == "GCN":

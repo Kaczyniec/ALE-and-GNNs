@@ -6,15 +6,15 @@ from tqdm import tqdm
 import sys
 import argparse
 import os
-from torch_geometric.loader import LinkNeighborLoader
-from torch_geometric.utils import k_hop_subgraph
-if "/home/pkaczynska/repositories" not in sys.path:
-    sys.path.append("/home/pkaczynska/repositories")
-#path_to_add = "C:/Users/ppaul/Documents"
 
-#if path_to_add not in sys.path:
+from torch_geometric.utils import k_hop_subgraph
+#if "/home/pkaczynska/repositories" not in sys.path:
+#    sys.path.append("/home/pkaczynska/repositories")
+path_to_add = "C:/Users/ppaul/Documents"
+
+if path_to_add not in sys.path:
     # Add the path to sys.path
-#    sys.path.append(path_to_add)
+    sys.path.append(path_to_add)
 from influence_on_ideas.utils.preprocess_data import graph_data
 from influence_on_ideas.models.twitch_gnn import Model
 
@@ -55,8 +55,10 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
 
             # Step 3: Calculate model predictions for lower and upper end of the section
             unique = np.random.choice(list(nodes), size=k)
-            edge_label_index = torch.cat((torch.Tensor(unique).int().unsqueeze(-1), idx*torch.ones(k).int().unsqueeze(-1)),dim=1)
+            
             subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(unique)+[idx], 2, data.edge_index, relabel_nodes=True)
+            
+            edge_label_index = torch.cat((torch.Tensor(mapping[:-1]).int().unsqueeze(-1), mapping[-1]*torch.ones(k).int().unsqueeze(-1)),dim=1)
             data.edge_index = edge_index
             
             data.to(device)
@@ -118,14 +120,14 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
           unique = np.random.choice(list(nodes), size=k)
 
           #create a tensor with edges to predict: for every node from bin_data_idx_subset check connections to every node in unique
-          subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(bin_data_idx_subset)+list(unique), 2, dataset.edge_index, relabel_index=True)
+          subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(bin_data_idx_subset)+list(unique), 2, dataset.edge_index, relabel_nodes=True)
           
           data.edge_index = edge_index
 
           unique = torch.Tensor(unique).int()
           edge_label_index = torch.cat(
-              (torch.Tensor(bin_data_idx_subset).int().repeat_interleave(unique.shape[0]).unsqueeze(-1),
-               unique.repeat(bin_data_idx_subset.shape).int().unsqueeze(-1)), axis=1)
+              (torch.Tensor(mapping[:len(bin_data_idx_subset)]).int().repeat_interleave(unique.shape[0]).unsqueeze(-1),
+               mapping[len(bin_data_idx_subset):].repeat(bin_data_idx_subset.shape).int().unsqueeze(-1)), axis=1)
           data.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
           data.to(device)
           lower_encode = model(data.x[subset], data.edge_index)
