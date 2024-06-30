@@ -68,7 +68,7 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
             data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
             upper_encode = model(data.x[subset], data.edge_index)
             upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
-            print(upper.shape, upper_encode.shape, edge_label_index.shape)
+            
             # Step 4: Subtract the above values. Average across all data points in the bin
 
             bin_ale = float(torch.mean((upper-lower)).detach())
