@@ -8,13 +8,13 @@ import argparse
 import os
 
 from torch_geometric.utils import k_hop_subgraph
-#if "/home/pkaczynska/repositories" not in sys.path:
-#    sys.path.append("/home/pkaczynska/repositories")
-path_to_add = "C:/Users/ppaul/Documents"
+if "/home/pkaczynska/repositories" not in sys.path:
+    sys.path.append("/home/pkaczynska/repositories")
+#path_to_add = "C:/Users/ppaul/Documents"
 
-if path_to_add not in sys.path:
+#if path_to_add not in sys.path:
     # Add the path to sys.path
-    sys.path.append(path_to_add)
+#    sys.path.append(path_to_add)
 from influence_on_ideas.utils.preprocess_data import graph_data
 from influence_on_ideas.models.twitch_gnn import Model
 
@@ -142,12 +142,12 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
             #preds.append(upper-lower)
           # Step 4: Subtract the above values. Average across all data points in the bin
 
-          bin_ale.append(float(torch.mean(upper-lower).detach()))
+          
 
           if ale:
-              ale.append(bin_ale + ale[-1])
+              ale.append(float(torch.mean(upper-lower).detach()) + ale[-1])
           else:
-              ale.append(bin_ale)
+              ale.append(float(torch.mean(upper-lower).detach()))
 
       end = time.time()
       return ale, end-start
@@ -167,7 +167,7 @@ if __name__ == '__main__':
   parser.add_argument('--model_type', type=str, default='GCN', help='Architecture')
   parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden dimension')
   parser.add_argument('--n_layers', type=int, default=2, help='Number of layers')
-  parser.add_argument('--column', type=int, default=3, help='Which column explain?')
+  parser.add_argument('--column', type=int, default=2, help='Which column explain?')
   args = parser.parse_args()
 
 

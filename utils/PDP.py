@@ -101,7 +101,7 @@ if __name__ == '__main__':
   parser.add_argument('--model_type', type=str, default='GCN', help='Architecture')
   parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden dimension')
   parser.add_argument('--n_layers', type=int, default=2, help='Number of layers')
-
+  parser.add_argument('--column', type=int, default=2, help='Number of column to explain')
   args = parser.parse_args()
   #edges_path = 'data/citations/edge.parquet'
   #node_features_path = 'data/citations/node_features.parquet'
@@ -135,8 +135,8 @@ if __name__ == '__main__':
     for max_bin_size in range(4, 11):
       print(k, max_bin_size)
       for i in range(5):
-          ale_exact, t_exact = graph_pdp_exact(test_data,model, 0, [0, 0.25, 0.5, 0.75, 1], 2**max_bin_size, 2**k, device)
-          ale_approximate, t_approximate = graph_pdp_approximate(test_data,model, 0, [0, 0.25, 0.5, 0.75, 1], 2**max_bin_size, 2**k, device)
+          ale_exact, t_exact = graph_pdp_exact(test_data,model, args.column, [0, 0.25, 0.5, 0.75, 1], 2**max_bin_size, 2**k, device)
+          ale_approximate, t_approximate = graph_pdp_approximate(test_data,model, args.column, [0, 0.25, 0.5, 0.75, 1], 2**max_bin_size, 2**k, device)
 
           results = pd.concat([results, pd.DataFrame({'idx': i, 'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_exact': ale_exact, 'time_exact': t_exact, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate})])
           results.to_csv(os.path.join("data", args.name, f"PDP_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_channels}.csv", mode='a', header=False))
