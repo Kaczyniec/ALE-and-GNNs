@@ -10,11 +10,11 @@ import os
 from torch_geometric.utils import k_hop_subgraph
 if "/home/pkaczynska/repositories" not in sys.path:
     sys.path.append("/home/pkaczynska/repositories")
-#path_to_add = "C:/Users/ppaul/Documents"
+path_to_add = "C:/Users/ppaul/Documents"
 
-#if path_to_add not in sys.path:
+if path_to_add not in sys.path:
     # Add the path to sys.path
-#    sys.path.append(path_to_add)
+    sys.path.append(path_to_add)
 from influence_on_ideas.utils.preprocess_data import graph_data
 from influence_on_ideas.models.twitch_gnn import Model
 
@@ -58,17 +58,17 @@ def accumulated_local_effects_exact(model, dataset, feature_index, num_bins=10, 
             
             subset, edge_index, mapping, edge_mask = k_hop_subgraph(list(unique)+[idx], 2, data.edge_index, relabel_nodes=True)
             
-            edge_label_index = torch.cat((torch.Tensor(mapping[:-1]).int().unsqueeze(-1), mapping[-1]*torch.ones(k).int().unsqueeze(-1)),dim=1)
+            edge_label_index = torch.cat((torch.Tensor(mapping[:-1]).int().unsqueeze(-1), mapping[-1]*torch.ones(k).int().unsqueeze(-1)),dim=1).T
             data.edge_index = edge_index
             
             data.to(device)
             data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
             lower_encode = model(data.x[subset], data.edge_index)
-            lower = model.decode(lower_encode, edge_label_index)
+            lower = model.decode(lower_encode, edge_label_index).view(-1).sigmoid()
             data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
             upper_encode = model(data.x[subset], data.edge_index)
-            upper = model.decode(upper_encode, edge_label_index)
-      
+            upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
+            print(upper.shape, upper_encode.shape, edge_label_index.shape)
             # Step 4: Subtract the above values. Average across all data points in the bin
 
             bin_ale = float(torch.mean((upper-lower)).detach())
@@ -127,12 +127,12 @@ def accumulated_local_effects_approximate(model, dataset, feature_index, num_bin
           unique = torch.Tensor(unique).int()
           edge_label_index = torch.cat(
               (torch.Tensor(mapping[:len(bin_data_idx_subset)]).int().repeat_interleave(unique.shape[0]).unsqueeze(-1),
-               mapping[len(bin_data_idx_subset):].repeat(bin_data_idx_subset.shape).int().unsqueeze(-1)), axis=1)
+               mapping[len(bin_data_idx_subset):].repeat(bin_data_idx_subset.shape).int().unsqueeze(-1)), axis=1).T
           data.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx]).float()
           data.to(device)
           lower_encode = model(data.x[subset], data.edge_index)
           lower = model.decode(lower_encode, edge_label_index).view(-1).sigmoid()
-
+          
           dataset.x[bin_data_idx_subset, feature_index] = torch.tensor(bin_edges[bin_idx + 1]).float()
 
           upper_encode = model(data.x[subset], data.edge_index)
@@ -205,7 +205,8 @@ if __name__ == '__main__':
     for max_bin_size in range(4, 11):
       print(k, max_bin_size)
       for i in range(5):
-          ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
           ale_approximate, t_approximate = accumulated_local_effects_approximate(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
+          ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
+          
           results = pd.concat([results, pd.DataFrame({'idx': i, 'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_exact': ale_exact, 'time_exact': t_exact, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate})])
           results.to_csv(os.path.join("data", args.name, f"ALE_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_dim}.csv"), mode='a', header=False)
