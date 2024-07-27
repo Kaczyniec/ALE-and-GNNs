@@ -122,7 +122,6 @@ pycparser==2.22
 pydantic==2.7.4
 pydantic_core==2.18.4
 pydot==2.0.0
-pyg-lib==0.4.0+pt23cu121
 pygit2==1.15.0
 Pygments==2.18.0
 pygtrie==2.5.0
@@ -160,13 +159,7 @@ tensorrt-cu12-libs==10.1.0
 termcolor==2.4.0
 threadpoolctl==3.5.0
 tomlkit==0.12.5
-torch==2.3.0+cu121
 torch-tb-profiler==0.4.3
-torch_cluster==1.6.3+pt23cu121
-torch_geometric==2.5.3
-torch_scatter==2.1.2+pt23cu121
-torch_sparse==0.6.18+pt23cu121
-torch_spline_conv==1.2.2+pt23cu121
 torchaudio==2.3.0+cu121
 torchvision==0.18.0+cu121
 tornado==6.4.1
