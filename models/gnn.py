@@ -14,6 +14,12 @@ from torch_geometric.utils import negative_sampling
 import sys
 if "/home/pkaczynska/repositories" not in sys.path:
     sys.path.append("/home/pkaczynska/repositories")
+
+path_to_add = "C:/Users/ppaul/Documents"
+
+if path_to_add not in sys.path:
+    # Add the path to sys.path
+    sys.path.append(path_to_add)
 from influence_on_ideas.utils.preprocess_data import graph_data
 
 
@@ -152,10 +158,10 @@ if __name__ == '__main__':
     edges_path = 'data/citations/edge.parquet'
     node_features_path = 'data/citations/node_features.parquet'
     data_path = 'data/citations/'
-    model_path = f"models/citations/{CONFIGS['model_type']}_n_layers{CONFIGS['n_layers']}_hidden_size{CONFIGS['hidden_channels']}"
+    model_path = f"models/citations/{CONFIGS['model_type']},n_layers{CONFIGS['n_layers']},hidden_size{CONFIGS['hidden_channels']}"
 
     logger = logging.getLogger(__name__)
-    logging.basicConfig(filename=model_path+'.log', encoding='utf-8', level=logging.DEBUG)
+    #logging.basicConfig(filename=model_path+'.log', encoding='utf-8', level=logging.DEBUG)
     edges = pd.read_parquet(edges_path)
     node_features = pd.read_parquet(node_features_path)
     train_loader, test_loader, train_data, test_data = graph_data(edges, node_features, 'data/citations/')
@@ -169,18 +175,22 @@ if __name__ == '__main__':
     ).to(device)
 
     # Check if the model weights file exists
+    print(model_path)
     if os.path.isfile(model_path):
         # Load the weights into the model
         model.load_state_dict(torch.load(model_path))
         print("Model weights loaded successfully.")
     else:
         print("Model weights file does not exist. Initializing model with random weights.")
-
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=CONFIGS['lr'])
-    scheduler = ExponentialLR(optimizer, gamma=0.99)
-    loss_values = []
-    for epoch in range(CONFIGS['epochs']):
-        loss = train(train_loader, device, optimizer, model, scheduler)
-        print('Loss: ', loss)
-        metrics = test(model, test_loader, device)
-        loss_values.append(loss)
+    metrics = test(model, test_loader, device)
+    print(metrics)
+    #metrics = test(model, train_loader, device)
+    #print(metrics)
+    #optimizer = torch.optim.Adam(params=model.parameters(), lr=CONFIGS['lr'])
+    #scheduler = ExponentialLR(optimizer, gamma=0.99)
+    #loss_values = []
+    #for epoch in range(CONFIGS['epochs']):
+    #    loss = train(train_loader, device, optimizer, model, scheduler)
+    #    print('Loss: ', loss)
+    #    metrics = test(model, test_loader, device)
+    #    loss_values.append(loss)

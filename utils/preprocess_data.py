@@ -13,8 +13,7 @@ from sklearn.preprocessing import normalize, MultiLabelBinarizer
 import torch_geometric.transforms as T
 from torch_geometric.nn import SAGEConv
 import torch.nn.functional as F
-from torch import Tensor
-
+from torch_geometric.sampler import NegativeSampling
 import warnings
 
 
@@ -66,9 +65,9 @@ def preprocess_data_citations(df):
 
 def graph_data(edges, node_features, path, batch_size=1024):
 
-    train_data_path = path+'train_data.pt'
-    test_data_path = path+'test_data.pt'
-    val_data_path = path+'val_data.pt'
+    train_data_path = path+'train_data2.pt'
+    test_data_path = path+'test_data2.pt'
+    val_data_path = path+'val_data2.pt'
     edge_array = edges.values.T
     edge_index = torch.tensor(edge_array, dtype=torch.int64)
 
@@ -96,7 +95,7 @@ def graph_data(edges, node_features, path, batch_size=1024):
         torch.save(train_data, train_data_path)
         torch.save(test_data, test_data_path)
         torch.save(val_data, val_data_path)
-    train_data, val_data, test_data = train_data, val_data, test_data
+    
 
     # Define seed edges:
     edge_label_index = train_data.edge_label_index
@@ -109,13 +108,16 @@ def graph_data(edges, node_features, path, batch_size=1024):
         batch_size=batch_size,
         edge_label_index=edge_label_index,
         edge_label=edge_label,
+        #time_attr=, 
     )
+    
     test_loader = LinkNeighborLoader(
         test_data,
         num_neighbors=[30] * 2,
         batch_size=batch_size,
         edge_label_index=test_data.edge_label_index,
         edge_label=test_data.edge_label,
+        #neg_sampling_ratio=1.0,
     )
     return train_loader, test_loader, train_data, test_data  
 

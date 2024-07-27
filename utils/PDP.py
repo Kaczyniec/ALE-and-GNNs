@@ -8,6 +8,10 @@ import torch_geometric.transforms as T
 import sys
 if "/home/pkaczynska/repositories" not in sys.path:
     sys.path.append("/home/pkaczynska/repositories")
+
+path_to_add = "C:/Users/ppaul/Documents"
+if path_to_add not in sys.path:
+    sys.path.append(path_to_add)
 from influence_on_ideas.utils.preprocess_data import graph_data
 from influence_on_ideas.models.twitch_gnn import Model
 from torch_geometric.loader import LinkNeighborLoader
@@ -49,6 +53,7 @@ def graph_pdp_exact(dataset, model, column, values, max_bin_size=256, k=256, dev
 
             encode = model(data.x, data.edge_index)
             out = model.decode(encode, edge_label_index)
+            print(out.shape)
             preds.append(out)
 
         probabilities[value] = np.mean(torch.cat(preds).detach().cpu().numpy())
@@ -86,6 +91,7 @@ def graph_pdp_approximate(dataset, model, column, values, max_bin_size=256, k=25
       with torch.no_grad():
         z = model.forward(data.x, data.edge_index)
         out = model.decode(z, edge_label_index).view(-1).sigmoid()
+        print(out.shape)
         probabilities[value].append(np.mean(out.detach().cpu().numpy()))
     end = time.time()
 
@@ -95,9 +101,12 @@ if __name__ == '__main__':
   device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   print("Running on: ", device)
   parser = argparse.ArgumentParser(description='Graph Neural Network Training Script')
-  parser.add_argument('--edges_path', type=str, required=True, help='Path to the edges CSV file')
-  parser.add_argument('--node_features_path', type=str, required=True, help='Path to the node features CSV file')
-  parser.add_argument('--name', type=str, required=True, help='Dataset name')
+  EDGES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_edges.csv"
+  NODE_FEATURES_PATH="data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_nodes.csv"
+  DATASET_NAME="CD1-E_no2"
+  parser.add_argument('--edges_path', type=str, default=EDGES_PATH, help='Path to the edges CSV file')
+  parser.add_argument('--node_features_path', type=str, default=NODE_FEATURES_PATH, help='Path to the node features CSV file')
+  parser.add_argument('--name', type=str, default=DATASET_NAME, help='Dataset name')
   parser.add_argument('--model_type', type=str, default='GCN', help='Architecture')
   parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden dimension')
   parser.add_argument('--n_layers', type=int, default=2, help='Number of layers')
