@@ -65,9 +65,9 @@ def preprocess_data_citations(df):
 
 def graph_data(edges, node_features, path, batch_size=1024):
 
-    train_data_path = path+'train_data2.pt'
-    test_data_path = path+'test_data2.pt'
-    val_data_path = path+'val_data2.pt'
+    train_data_path = os.path.join(path,'train_data2.pt')
+    test_data_path = os.path.join(path,'test_data2.pt')
+    val_data_path = os.path.join(path,'val_data2.pt')
     edge_array = edges.values.T
     edge_index = torch.tensor(edge_array, dtype=torch.int64)
 
@@ -119,10 +119,20 @@ def graph_data(edges, node_features, path, batch_size=1024):
         edge_label=test_data.edge_label,
         #neg_sampling_ratio=1.0,
     )
-    return train_loader, test_loader, train_data, test_data  
+    val_loader = LinkNeighborLoader(
+        test_data,
+        num_neighbors=[30] * 2,
+        batch_size=batch_size,
+        edge_label_index=test_data.edge_label_index,
+        edge_label=test_data.edge_label,
+        #neg_sampling_ratio=1.0,
+    )
+    return train_loader, test_loader, train_data, test_data, val_data, val_loader
 
 if __name__=='__main__':
     df = pd.read_parquet(r"C:\Users\ppaul\Documents\AI-strategies-papers-regulations-monitoring\data\s2orc\big_ai_dataset_with_affiliations_extended_oa.parquet")
     edges, node_features, meme_dict, paper_ids_dict = preprocess_data_citations(df)
+    print(len(edges), len(node_features))
+
     edges.to_csv("./data/citations/edge.csv")
     pd.DataFrame(node_features).to_csv("./data/citations/node_features.csv")

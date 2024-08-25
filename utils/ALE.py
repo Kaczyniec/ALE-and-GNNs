@@ -17,7 +17,7 @@ if path_to_add not in sys.path:
     # Add the path to sys.path
     sys.path.append(path_to_add)
 from influence_on_ideas.utils.preprocess_data import graph_data
-from influence_on_ideas.models.gnn import Model #vs gnn_batchnorm
+from influence_on_ideas.models.gnn_batchnorm import Model #vs gnn_batchnorm
 
 
 # Change: the prediction is between node with change value and the rest of the dataset!!!
@@ -96,7 +96,7 @@ def accumulated_local_effects_exact(
 
                 # Step 4: Subtract the above values. Average across all data points in the bin
 
-                bin_ale = float(torch.mean((upper - lower)).detach())
+                bin_ale.append(float(torch.mean((upper - lower)).detach()))
 
             # Step 5: Calculate the cumulative sum of the averaged differences
             bin_ale = np.mean(bin_ale)
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     print("Running on: ", device)
     EDGES_PATH = "data/citations/edge.csv"#"data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_edges.csv"  # 
     NODE_FEATURES_PATH = "data/citations/node_features.csv"#"data/CD1-E_no2/CD1-E-no2_iso3um_stitched_segmentation_bulge_size_3.0_nodes.csv"  # 
-    DATASET_NAME = "citations"#"CD1-E_no2"
+    DATASET_NAME ="citations"# "CD1-E_no2"#
     parser = argparse.ArgumentParser(
         description="Graph Neural Network Explaining Script"
     )
@@ -236,12 +236,14 @@ if __name__ == "__main__":
 
     args.edges_path = 'data/citations/edge.parquet'
     args.node_features_path = 'data/citations/node_features.parquet'
-    data_path = 'data/citations/'
+    
     args.name='citations'
-    #edges = pd.read_csv(args.edges_path, index_col=0, sep=";")[["node1id", "node2id"]]
-    #node_features = pd.read_csv(args.node_features_path, sep=";")#[["pos_x", "pos_y", "pos_z", "isAtSampleBorder"]]
+    #edges = pd.read_csv(EDGES_PATH, index_col=0, sep=";")[["node1id", "node2id"]]
+    #node_features = pd.read_csv(NODE_FEATURES_PATH, sep=";")[["pos_x", "pos_y", "pos_z", "isAtSampleBorder"]]
     edges = pd.read_parquet(args.edges_path)
     node_features = pd.read_parquet(args.node_features_path)
+
+    data_path = 'data/citations/'
     train_loader, test_loader, train_data, test_data = graph_data(
         edges, node_features, "data/" + args.name
     )
@@ -275,13 +277,16 @@ if __name__ == "__main__":
 
     # print(pd.DataFrame({'k': 512 , 'max_bin_size': None, 'explanation_exact': ale_approximate, 'time_exact': t_approximate}))#.to_csv(os.path.join("data", args.name, f"ALE_goldstandard_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_dim}_no_k.csv"), mode='a', header=False)
     # results = pd.DataFrame(columns=['idx', 'k', 'max_bin_size', 'explanation_exact', 'time_exact', 'explanation_approximate', 'time_approximate'])
-    for k in range(4, 8):#11):
-      for max_bin_size in range(4, 8):#11):
+    # 4-11, 4-7; 7-11, 7-11
+    # 
+    for k in range(4, 11):
+      for max_bin_size in range(4, 11):
         #    print(k, max_bin_size)
-        for i in range(5):
-            ale_approximate, t_approximate = accumulated_local_effects_approximate(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
-            ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, args.column, 5, 2**max_bin_size, 2**k, device)
 
-            pd.DataFrame({'idx': i, 'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate, 'explanation_exact': ale_exact, 'time_exact': t_exact}).to_csv(os.path.join("data", args.name, f"ALE_check4to8_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_dim}.csv"), mode='a', header=False)
+        ale_approximate, t_approximate = accumulated_local_effects_approximate(model,train_data, args.column, 5, 2**max_bin_size, 2**k, device)
+        ale_exact, t_exact = accumulated_local_effects_exact(model,train_data, args.column, 5, 2**max_bin_size, 2**k, device)
+
+        pd.DataFrame({'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate, 'explanation_exact': ale_exact, 'time_exact': t_exact}).to_csv(os.path.join("data", args.name, f"ALE_04.08_{args.model_type}_n_layers{args.n_layers}_hidden_size{args.hidden_dim}.csv"), mode='a', header=False)
+        
     # results = pd.concat([results, pd.DataFrame({'idx': i, 'k': 2**k, 'max_bin_size': 2**max_bin_size, 'explanation_exact': ale_exact, 'time_exact': t_exact, 'explanation_approximate': ale_approximate, 'time_approximate': t_approximate})])
     #        

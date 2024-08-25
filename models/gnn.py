@@ -164,7 +164,7 @@ if __name__ == '__main__':
     #logging.basicConfig(filename=model_path+'.log', encoding='utf-8', level=logging.DEBUG)
     edges = pd.read_parquet(edges_path)
     node_features = pd.read_parquet(node_features_path)
-    train_loader, test_loader, train_data, test_data = graph_data(edges, node_features, 'data/citations/')
+    train_loader, test_loader, train_data, test_data, val_data, val_loader = graph_data(edges, node_features, 'data/citations/')
 
     # Initialize the model
     model = Model(

@@ -23,7 +23,8 @@ from torch_geometric.utils import negative_sampling
 import sys
 import psutil
 from torch.utils.tensorboard import SummaryWriter
-
+#from clearml import Task
+#task = Task.init(project_name="Citation training", task_name="GCN")
 if "/home/pkaczynska/repositories" not in sys.path:
     sys.path.append("/home/pkaczynska/repositories")
 
@@ -35,7 +36,7 @@ if path_to_add not in sys.path:
 from influence_on_ideas.utils.preprocess_data import graph_data
 
 # Initialize TensorBoard SummaryWriter
-writer = SummaryWriter('models/citations/tensorboard_logs')
+writer = SummaryWriter('models/citations/tensorboard_logs2')
 
 seed = 42
 torch.manual_seed(seed)
@@ -43,9 +44,9 @@ np.random.seed(seed)
 CONFIGS = [
     {
         "hidden_channels": 256,
-        "lr": 0.000005,#was 1e5?
+        "lr": 0.0000005,#was 1e5?
         #'weight_decay': 5e-4,
-        "epochs": 20,  # 4 left?
+        "epochs": 15,  # 4 left?
         "batch_size": 1024,
         "n_layers": 2,
         "model_type": "GAT",
@@ -54,14 +55,14 @@ CONFIGS = [
         "hidden_channels": 256,
         "lr": 0.000001,
         #'weight_decay': 5e-4,
-        "epochs": 50,
+        "epochs": 15,
         "batch_size": 1024,
         "n_layers": 2,
         "model_type": "GCN",
     },
 ]  # GCN - 10 epok, GAT - 6
 
-CONFIG = CONFIGS[1]
+CONFIG = CONFIGS[0]
 
 
 class Model(torch.nn.Module):
@@ -159,7 +160,7 @@ def train(train_loader, device, optimizer, model, writer):
         total_examples += batch_size
         # Log loss to TensorBoard
         writer.add_scalar('Loss/train', loss.item(), epoch * len(train_loader) + batch_idx)
-        #logging.debug(f"Loss: {loss.item()}")
+        logging.debug(f"Loss: {loss.item()}")
         # scheduler.step()
 
     torch.save(
@@ -285,10 +286,11 @@ if __name__ == "__main__":
     # logging.basicConfig(filename=model_path+'.log', encoding='utf-8', level=logging.DEBUG)
     edges = pd.read_parquet(edges_path)
     node_features = pd.read_parquet(node_features_path)
-    train_loader, test_loader, train_data, test_data = graph_data(
+    train_loader, test_loader, train_data, test_data, val_data, val_loader = graph_data(
         edges, node_features, "data/citations/"
     )
-
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(filename=model_path+'.log', encoding='utf-8', level=logging.DEBUG)
     # Initialize the model
     model = Model(
         in_channels=np.shape(train_data.x)[1],
@@ -306,19 +308,23 @@ if __name__ == "__main__":
         print(
             "Model weights file does not exist. Initializing model with random weights."
         )
-
+    #params = task.connect_configuration(CONFIG)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=CONFIG["lr"])
     scheduler = None  # ExponentialLR(optimizer, gamma=0.99)
     loss_values = []
     print(model_path)
-    metrics = test(model, test_loader, device)
-    writer.add_scalar('Test/average_f1_score', metrics['average_f1_score'], 0)
-    writer.add_scalar('Test/average_roc_auc', metrics['average_roc_auc'], 0)
-    for epoch in range(CONFIG["epochs"]):
-        print(f"Epoch: {epoch}")
-        train(train_loader, device, optimizer, model, writer)
-        metrics = test(model, test_loader, device)
-        writer.add_scalar('Test/average_f1_score', metrics['average_f1_score'], epoch+1)
-        writer.add_scalar('Test/average_roc_auc', metrics['average_roc_auc'], epoch+1)
+    valmetrics = test(model, val_loader, device)
+    testmetrics = test(model, test_loader, device)
+    print(valmetrics, testmetrics)
+    #writer.add_scalar('Test/average_f1_score', metrics['average_f1_score'], 0)
+    #writer.add_scalar('Test/average_roc_auc', metrics['average_roc_auc'], 0)
+    #logging.info(metrics)
+    #for epoch in range(CONFIG["epochs"]):
+    #    print(f"Epoch: {epoch}")
+    #    train(train_loader, device, optimizer, model, writer)
+    #    metrics = test(model, test_loader, device)
+        #writer.add_scalar('Test/average_f1_score', metrics['average_f1_score'], epoch+1)
+        #writer.add_scalar('Test/average_roc_auc', metrics['average_roc_auc'], epoch+1)
+    #    logging.info(metrics)
 # Close the TensorBoard SummaryWriter after training
-writer.close()
+#writer.close()
