@@ -159,9 +159,7 @@ tensorrt-cu12-libs==10.1.0
 termcolor==2.4.0
 threadpoolctl==3.5.0
 tomlkit==0.12.5
-
 torch-tb-profiler==0.4.3
-
 torchaudio==2.3.0+cu121
 torchvision==0.18.0+cu121
 tornado==6.4.1
