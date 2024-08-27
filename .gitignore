@@ -24,3 +24,19 @@ TestResults.xml
 influence-on-ideas-venv
 #all venv
 *venv*
+*.csv
+*.xlsx
+*.eps
+*.png
+*.pt
+*tfevents*
+*.json
+*__pycache__*
+*.log
+models/CD1-E_no2/GAT,n_layers2,hidden_size256_local
+models/CD1-E_no2/GCN,n_layers2,hidden_size256_local
+models/citations/GAT,n_layers2,hidden_size256_1
+models/citations/GAT,n_layers2,hidden_size256
+models/citations/GCN,n_layers2,hidden_size256
+models/citations/GCN,n_layers2,hidden_size256_1
+.dvc*

@@ -21,7 +21,7 @@ DATASET_NAME="CD1-E_no2"
 # Define configurations
 CONFIGS=(
     "--model_type GCN --hidden_dim 256 --n_layers 2"
-    #"--model_type GAT --hidden_dim 256 --n_layers 2"
+    "--model_type GAT --hidden_dim 256 --n_layers 2"
 )
 
 # Loop through configurations and run the script
