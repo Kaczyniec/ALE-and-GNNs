@@ -33,7 +33,7 @@ path_to_add = "C:/Users/ppaul/Documents"
 if path_to_add not in sys.path:
     # Add the path to sys.path
     sys.path.append(path_to_add)
-from influence_on_ideas.utils.preprocess_data import graph_data
+from utils.preprocess_data import graph_data
 
 # Initialize TensorBoard SummaryWriter
 writer = SummaryWriter('models/citations/tensorboard_logs2')
@@ -110,7 +110,6 @@ class Model(torch.nn.Module):
         return torch.cat(preds, dim=0)
 
     def decode(self, z, edge_label_index):
-
         return (z[edge_label_index[0]] * z[edge_label_index[1]]).sum(dim=-1)
 
     def decode_all(self, z):
@@ -118,7 +117,7 @@ class Model(torch.nn.Module):
         return (prob_adj > 0).nonzero(as_tuple=False).t()  # get predicted edge_list
 
 
-def train(train_loader, device, optimizer, model, writer):
+def train(train_loader, device, optimizer, model, writer, epoch):
     """
     Single epoch model training in batches.
     :return: total loss for the epoch
@@ -246,7 +245,7 @@ def test(model, loader, device="cuda"):
     all_preds = []
     all_labels = []
 
-    threshold = torch.tensor([0.7]).to(device)
+    threshold = torch.tensor([0.7])#.to(device)
 
     for batch in loader:
         batch.to(device)
@@ -259,8 +258,8 @@ def test(model, loader, device="cuda"):
         all_preds.append(out)
         all_labels.append(batch.edge_label)
 
-    all_preds = torch.concat(all_preds)
-    all_labels = torch.concat(all_labels)
+    all_preds = torch.concat(all_preds).cpu()#.numpy()
+    all_labels = torch.concat(all_labels).cpu()#.numpy()
     
     avg_roc_auc = roc_auc_score(all_labels, all_preds)
     
@@ -268,8 +267,7 @@ def test(model, loader, device="cuda"):
     
     # Log metrics to TensorBoard
 
-
-    #logging.info(f"F1 score: {avg_f1:.4f}, ROC AUC: {avg_roc_auc:.4f}")
+    logging.info(f"F1 score: {avg_f1:.4f}, ROC AUC: {avg_roc_auc:.4f}")
     print(f"F1 score: {avg_f1:.4f}, ROC AUC: {avg_roc_auc:.4f}")
     return {"average_f1_score": avg_f1, "average_roc_auc": avg_roc_auc}
 
@@ -321,7 +319,7 @@ if __name__ == "__main__":
     #logging.info(metrics)
     #for epoch in range(CONFIG["epochs"]):
     #    print(f"Epoch: {epoch}")
-    #    train(train_loader, device, optimizer, model, writer)
+    #    train(train_loader, device, optimizer, model, writer, epoch)
     #    metrics = test(model, test_loader, device)
         #writer.add_scalar('Test/average_f1_score', metrics['average_f1_score'], epoch+1)
         #writer.add_scalar('Test/average_roc_auc', metrics['average_roc_auc'], epoch+1)

@@ -20,8 +20,11 @@ path_to_add = "C:/Users/ppaul/Documents"
 if path_to_add not in sys.path:
     # Add the path to sys.path
     sys.path.append(path_to_add)
-from influence_on_ideas.utils.preprocess_data import graph_data
+from ale_and_gnns.utils.preprocess_data import graph_data
 
+# Initialize TensorBoard SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter('models/citations/tensorboard_logs2')
 
 seed = 42
 torch.manual_seed(seed)
@@ -182,6 +185,15 @@ if __name__ == '__main__':
         print("Model weights loaded successfully.")
     else:
         print("Model weights file does not exist. Initializing model with random weights.")
+        optimizer = torch.optim.Adam(params=model.parameters(), lr=0.01)
+        loss_values = []
+        for epoch in range(1, 10):
+            logging.info(f'Starting epoch {epoch}')
+            loss = train(train_data, train_loader, device, optimizer, model)
+            f1 = test(test_loader, model)
+            loss_values.append(loss)  # Store the loss value
+            logging.info(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, F1: {f1:.5f}')
+            torch.save(model.state_dict(), 'models/citations/'+str())
     metrics = test(model, test_loader, device)
     print(metrics)
     #metrics = test(model, train_loader, device)

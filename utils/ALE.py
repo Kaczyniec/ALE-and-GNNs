@@ -16,8 +16,8 @@ path_to_add = "C:/Users/ppaul/Documents"
 if path_to_add not in sys.path:
     # Add the path to sys.path
     sys.path.append(path_to_add)
-from influence_on_ideas.utils.preprocess_data import graph_data
-from influence_on_ideas.models.gnn_batchnorm import Model #vs gnn_batchnorm
+from utils.preprocess_data import graph_data
+from models.gnn_batchnorm import Model #vs gnn_batchnorm
 
 
 # Change: the prediction is between node with change value and the rest of the dataset!!!
@@ -81,7 +81,7 @@ def accumulated_local_effects_exact(
                         mapping[-1] * torch.ones(k).int().unsqueeze(-1),
                     ),
                     dim=1,
-                ).T
+                ).T.long()
                 data.edge_index = edge_index
 
                 data.to(device)
@@ -169,7 +169,8 @@ def accumulated_local_effects_approximate(
             )
 
             data.edge_index = edge_index
-
+            data.to(device)
+            edge_index = edge_index.to(device)
             unique = torch.Tensor(unique).int()
             edge_label_index = torch.cat(
                 (
@@ -183,7 +184,7 @@ def accumulated_local_effects_approximate(
                     .unsqueeze(-1),
                 ),
                 dim=1,
-            ).T
+            ).T.long()
     
             data.x[bin_data_idx_subset, feature_index] = torch.tensor(
                 bin_edges[bin_idx]
