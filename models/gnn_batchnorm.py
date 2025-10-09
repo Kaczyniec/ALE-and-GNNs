@@ -38,7 +38,7 @@ from utils.preprocess_data import graph_data
 # Initialize TensorBoard SummaryWriter
 writer = SummaryWriter('models/citations/tensorboard_logs2')
 
-seed = 42
+seed = 42 #43
 torch.manual_seed(seed)
 np.random.seed(seed)
 CONFIGS = [
