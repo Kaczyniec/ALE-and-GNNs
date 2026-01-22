@@ -1,0 +1,75 @@
+import sys
+if "/home/pkaczyns/Code" not in sys.path:
+    sys.path.append("/home/pkaczyns/Code/ALE-AND-GNNS")
+import torch
+import pandas as pd
+import numpy as np
+import os
+import logging
+import gc
+
+from utils.preprocess_data import graph_data
+from models.gnn_batchnorm import Model, train, test
+from utils.ALE import accumulated_local_effects_exact, accumulated_local_effects_approximate
+from torch.utils.tensorboard import SummaryWriter
+from clearml import Task
+
+
+writer = SummaryWriter('models/citations/depth')
+
+if __name__ == '__main__':
+    # read model and data
+    device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("Training on: ", device)
+    edges_path = 'data/citations/edge.parquet'
+    node_features_path = 'data/citations/node_features.parquet'
+    data_path = 'data/citations/'
+    
+    n_layers=2
+    logger = logging.getLogger(__name__)
+    #logging.basicConfig(filename=model_path+'.log', encoding='utf-8', level=logging.DEBUG)
+    edges = pd.read_parquet(edges_path)
+    node_features = pd.read_parquet(node_features_path)
+    train_loader, test_loader, train_data, test_data, val_data, val_loader = graph_data(edges, node_features, 'data/citations/')
+    for no_exp in range(5):
+        
+        hidden_channels = 256#int(512/n_layers)
+        # Initialize the model
+        model_path = f"models/citations/GAT,n_layers{n_layers},hidden_size{hidden_channels},no{no_exp}"
+        model = Model(
+            in_channels=np.shape(train_data.x)[1], 
+            hidden_channels=hidden_channels, 
+            model_type='GAT', 
+            n_layers=n_layers,
+        ).to(device)
+
+
+        #task = Task.init(project_name="Citation training", task_name=f"GAT,n_layers{n_layers},hidden_size{hidden_channels}")
+        print("Model weights file does not exist. Initializing model with random weights.")
+        optimizer = torch.optim.Adam(params=model.parameters(), lr=0.000001)
+        loss_values = []
+        for epoch in range(1, 20):
+            logging.info(f'Starting epoch {epoch}')
+            loss = train(train_loader, device, optimizer, model,writer, epoch)
+            f1 = test(model, test_loader)
+            loss_values.append(loss)  # Store the loss value
+            #logging.info(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, F1: {f1:.5f}')
+        n = 10
+        with torch.no_grad():
+            model.eval() 
+            for max_bin_size in [8, 16,32,64,128, 256, 512, 1024, 2048]:
+                print(max_bin_size)
+                for trial in range(5):
+                    
+                    ale_approximate, t_approximate = accumulated_local_effects_approximate(model,test_data, 0, 5, max_bin_size, k=2**n, use_khop=False)
+                    ale_exact, t_exact = accumulated_local_effects_exact(model,test_data, 0, 5, max_bin_size, k=2**n, use_khop=False)
+                    
+                    #results = pd.concat([results, pd.DataFrame({'k': 2**n, 'max_bin_size': 2**max_bin_size, 'ALE exact': ale_exact, 'time_exact': t_exact, 'ALE approximate': ale_approximate, 'time_approximate': t_approximate})])
+                    pd.DataFrame({'k': 2**n, 'max_bin_size': max_bin_size, 'ALE exact': ale_exact, 'time_exact': t_exact, 'ALE approximate': ale_approximate, 'time_approximate': t_approximate, 'n_layers': n_layers, 'hidden_size': hidden_channels, 'no_exp': no_exp, 'trial': trial}
+                                ).to_csv(os.path.join("data", 'citations', f"ALE_scalability_GAT_no_khop.csv"), mode='a', header=False)
+        #task.close()
+        # --- MEMORY CLEANUP ---
+        print(f"Cleaning up experiment {no_exp}...")
+        del model
+        gc.collect()            # Clear RAM references
+        torch.cuda.empty_cache() # Clear VRAM cache
