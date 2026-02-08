@@ -81,8 +81,8 @@ def train_single_seed(config, edges, node_features, data_path, device, seed):
                 dim=0,
             ).to(device)
 
-            out = model.decode(z, edge_label_index).view(-1).sigmoid()
-            loss = F.binary_cross_entropy_with_logits(out, edge_label)
+            out = model.decode(z, edge_label_index).view(-1)#.sigmoid()
+            loss = F.binary_cross_entropy_with_logits(out, edge_label, reduce="mean")
 
             loss.backward()
             optimizer.step()

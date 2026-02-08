@@ -12,7 +12,105 @@ from torch_geometric.utils import k_hop_subgraph
 from utils.preprocess_data import graph_data
 from models.gnn_batchnorm import Model 
 
+def ALE_exact_minimal(model, dataset, feature_index, num_bins=10, max_bin_size=None, k=256, device=torch.device("cuda")):
+    start = time.time()
+    feature_values = dataset.x[:, feature_index].cpu()
+    bin_edges = np.linspace(feature_values.min() - 0.001, feature_values.max() + 0.001, num_bins + 1)
+    bin_indices = np.digitize(feature_values.numpy(), bin_edges) - 1
+    ale = []
+    
+    with torch.no_grad():
+        for bin_idx in range(num_bins):
+            bin_data_idx = np.where(bin_indices == bin_idx)[0]
+            if len(bin_data_idx) == 0:
+                ale.append(ale[-1] if ale else 0)
+                continue
+            
+            # Subsample nodes in bin if max_bin_size specified
+            if max_bin_size is not None:
+                bin_data_idx = np.random.choice(
+                    bin_data_idx, 
+                    size=min(max_bin_size, len(bin_data_idx)), 
+                    replace=False
+                )
+            
+            bin_diffs = []
+            for idx in bin_data_idx:
+                data = dataset.clone()
+                data.to(device)
+                
+                # Sample k random nodes to predict edges to
+                sample_nodes = np.random.choice(dataset.x.shape[0], size=k, replace=True)
+                
+                edge_label_index = torch.stack([
+                    torch.full((k,), idx, dtype=torch.long),
+                    torch.tensor(sample_nodes, dtype=torch.long)
+                ]).to(device)
+                
+                # Lower bound
+                data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx], device=device, dtype=torch.float32)
+                lower = model.decode(model(data.x, data.edge_index), edge_label_index).view(-1).sigmoid()
+                
+                # Upper bound
+                data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1], device=device, dtype=torch.float32)
+                upper = model.decode(model(data.x, data.edge_index), edge_label_index).view(-1).sigmoid()
+                
+                bin_diffs.extend((upper - lower).cpu().numpy().tolist())
+            
+            bin_effect = np.mean(bin_diffs)
+            ale.append((ale[-1] if ale else 0) + bin_effect)
+    
+    end = time.time()
+    return ale, end - start
 
+
+def ALE_approximate_minimal(model, dataset, feature_index, num_bins=10, max_bin_size=None, k=256, device=torch.device("cuda")):
+    start = time.time()
+    feature_values = dataset.x[:, feature_index].cpu()
+    bin_edges = np.linspace(feature_values.min() - 0.001, feature_values.max() + 0.001, num_bins + 1)
+    bin_indices = np.digitize(feature_values.numpy(), bin_edges) - 1
+    ale = []
+    
+    with torch.no_grad():
+        for bin_idx in range(num_bins):
+            bin_data_idx = np.where(bin_indices == bin_idx)[0]
+            if len(bin_data_idx) == 0:
+                ale.append(ale[-1] if ale else 0)
+                continue
+            
+            # Subsample nodes in bin if max_bin_size specified
+            if max_bin_size is not None:
+                bin_data_idx = np.random.choice(
+                    bin_data_idx, 
+                    size=min(max_bin_size, len(bin_data_idx)), 
+                    replace=False
+                )
+            
+            data = dataset.clone()
+            data.to(device)
+            
+            # Sample k random nodes to predict edges to
+            sample_nodes = np.random.choice(dataset.x.shape[0], size=k, replace=True)
+            
+            # Create edges: all bin nodes to all sample nodes (Cartesian product)
+            edge_label_index = torch.stack([
+                torch.tensor(bin_data_idx, dtype=torch.long).repeat_interleave(k),
+                torch.tensor(sample_nodes, dtype=torch.long).repeat(len(bin_data_idx))
+            ]).to(device)
+            
+            # Lower bound
+            data.x[bin_data_idx, feature_index] = torch.tensor(bin_edges[bin_idx], device=device, dtype=torch.float32)
+            lower = model.decode(model(data.x, data.edge_index), edge_label_index).view(-1).sigmoid()
+            
+            # Upper bound
+            data.x[bin_data_idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1], device=device, dtype=torch.float32)
+            upper = model.decode(model(data.x, data.edge_index), edge_label_index).view(-1).sigmoid()
+            
+            bin_effect = float(torch.mean(upper - lower).cpu())
+            ale.append((ale[-1] if ale else 0) + bin_effect)
+    
+    end = time.time()
+    return ale, end - start
 def accumulated_local_effects_exact(
     model,
     dataset,
@@ -48,17 +146,15 @@ def accumulated_local_effects_exact(
                 )
             else:
                 bin_data_idx_subset = bin_data_idx
-            
-            for idx in tqdm(bin_data_idx_subset):
+            if k is not None:
+                unique = np.random.choice(list(nodes), size=k)
+            else:
+                unique = np.array(list(nodes))
+
+            for idx in bin_data_idx_subset:
                 data = dataset.clone()
                 data.to(device)  
                 model.eval()
-                
-                if k is not None:
-                    unique = np.random.choice(list(nodes), size=k)
-                else:
-                    unique = np.array(list(nodes))
-                
                 if use_khop:
                     subset, edge_index, mapping, edge_mask = k_hop_subgraph(
                         [idx] + list(unique), khop_size, data.edge_index, relabel_nodes=True
@@ -93,12 +189,11 @@ def accumulated_local_effects_exact(
                 else:
                     edge_label_index = torch.cat(
                         (
-                            torch.full((k,), idx, dtype=torch.long, device=device).unsqueeze(-1),
+                            torch.full(unique.shape, idx, dtype=torch.long, device=device).unsqueeze(-1),
                             torch.tensor(unique, dtype=torch.long, device=device).unsqueeze(-1),
                         ),
                         dim=1,
-                    ).T.long()
-                    print(edge_label_index)
+                    ).T.long().to(device)
                     
                     data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx], device=device, dtype=torch.float32)
                     lower_encode = model(data.x, data.edge_index)
@@ -107,14 +202,13 @@ def accumulated_local_effects_exact(
                     data.x[idx, feature_index] = torch.tensor(bin_edges[bin_idx + 1], device=device, dtype=torch.float32)
                     upper_encode = model(data.x, data.edge_index)
                     upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
-                
-                bin_ale.append(float(torch.mean((upper - lower)).cpu().detach()))
-            
+                bin_ale.extend((upper - lower).cpu().detach().numpy().tolist())#bin_ale.append((torch.mean((upper - lower)).cpu().detach()))
             bin_ale = np.mean(bin_ale)
             if ale:
                 ale.append(bin_ale + ale[-1])
             else:
                 ale.append(bin_ale)
+            del data
     
     end = time.time()
     return ale, end - start
@@ -138,7 +232,6 @@ def accumulated_local_effects_approximate(
     )
     # Step 2: Sort the data into these bins according to the value of the feature
     bin_indices = np.digitize(feature_values.numpy(), bin_edges) - 1
-    print(bin_edges)
     # Initialize arrays to store predictions and accumulated local effects
     ale = []
     nodes = set(range(dataset.x.shape[0]))
@@ -166,6 +259,7 @@ def accumulated_local_effects_approximate(
                 unique = np.random.choice(list(nodes), size=k)
             else:
                 unique = np.array(list(nodes))
+            unique_tensor = torch.tensor(unique, dtype=torch.long)
             
             if use_khop:
                 # Use k-hop subgraph extraction
@@ -179,7 +273,7 @@ def accumulated_local_effects_approximate(
                 data.edge_index = edge_index
                 data.to(device)
                 edge_index = edge_index.to(device)
-                unique_tensor = torch.Tensor(unique).int()
+                
                 
                 # Create edge label index: all bin nodes to all unique nodes
                 edge_label_index = torch.cat(
@@ -215,7 +309,7 @@ def accumulated_local_effects_approximate(
                 
                 # Create edge label index: all bin nodes to all unique nodes (Cartesian product)
                 bin_nodes_tensor = torch.tensor(bin_data_idx_subset, dtype=torch.long)
-                unique_tensor = torch.tensor(unique, dtype=torch.long)
+                
                 
                 edge_label_index = torch.cat(
                     (
@@ -240,7 +334,8 @@ def accumulated_local_effects_approximate(
                 ).float()
                 upper_encode = model(data.x, data.edge_index)
                 upper = model.decode(upper_encode, edge_label_index).view(-1).sigmoid()
-            
+                
+
             # Step 4: Subtract the above values. Average across all data points in the bin
             if ale:
                 ale.append(float(torch.mean(upper - lower).detach()) + ale[-1])
